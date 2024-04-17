@@ -1,6 +1,12 @@
+const jwt = require('jsonwebtoken');
 const errorType = require('../constants/error-types');
 const service = require('../service/user.service');
+const userService = require('../service/auth.service');
+
 const md5password = require('../utils/password-handle');
+
+const {PRIVATE_KEY} = require('../app/config');
+
 
 const verifyLogin = async (ctx, next) => {
     const {name, password} = ctx.request.body
@@ -25,9 +31,73 @@ const verifyLogin = async (ctx, next) => {
         return ctx.app.emit('error', error, ctx);
     }
 
+    ctx.user = user;
+
     await next()
 }
 
+const verifyAuth = async (ctx, next) => {
+    const authorization = ctx.headers.authorization;
+
+    if(!authorization) {
+        const error = new Error(errorType.UNAUTHORIZED_ERROR);
+        ctx.app.emit('error', error, ctx);
+    }
+    
+    const token = authorization.replace('Bearer ', '');
+    try {
+        const result = jwt.verify(token, PRIVATE_KEY, {
+            algorithms: ['RS256']
+        })
+        ctx.user = result;
+        await next()
+    } catch (e) {
+        const error = new Error(errorType.UNAUTHORIZED_ERROR);
+        ctx.app.emit('error', error, ctx);
+    }
+
+}
+
+const verifyPermission = async (ctx, next) => {
+    try {
+        const [resourceKey] = Object.keys(ctx.params)
+        const tableName = resourceKey.replace('Id', '')
+        const resourceId = ctx.params[resourceKey]
+
+        const {id} = ctx.user
+        const isPermission = await userService.checkAuth(tableName, resourceId, id)
+        
+        if(!isPermission) {
+            const error = new Error(errorType.UNPERMISSION);
+            return ctx.app.emit('error', error, ctx);
+        }
+
+        await next()
+    } catch (error) {
+        console.log(error);
+    }
+}
+
+// const verifyPermission = (tableName) => async (ctx, next) => {
+//     try {
+//         const {momentId} = ctx.params
+//         const {id} = ctx.user
+//         const isPermission = await userService.checkAuth(tableName, momentId, id)
+        
+//         if(!isPermission) {
+//             const error = new Error(errorType.UNPERMISSION);
+//             return ctx.app.emit('error', error, ctx);
+//         }
+
+        
+//         await next()
+//     } catch (error) {
+//         console.log(error);
+//     }
+// }
+
 module.exports = {
-    verifyLogin
+    verifyLogin,
+    verifyAuth,
+    verifyPermission
 }
